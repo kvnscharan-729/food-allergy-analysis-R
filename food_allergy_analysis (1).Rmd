@@ -1,0 +1,358 @@
+---
+title: "COMP4028 – Data Analysis using R Programming"
+subtitle: "Food Allergy Analysis – Zenodo Dataset"
+author: "Group 6"
+date: "28 March 2026`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+---
+
+# Introduction
+
+This report performs a comprehensive data analysis on the **Food Allergy Analysis Dataset** sourced from [Zenodo](https://zenodo.org/). The dataset contains de-identified patient records tracking food allergy diagnoses, atopic conditions, and demographic information for over 333,000 subjects. The analysis is performed using R Programming and covers data exploration, manipulation, statistical analysis, and visualization.
+
+---
+
+# Load Required Libraries
+
+```{r libraries}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(reshape2)
+```
+
+---
+
+# Load the Dataset
+
+```{r load-data}
+# Read the gzipped CSV file directly
+df <- read.csv("C:/Users/kvnsc/Downloads/food-allergy-analysis-Zenodo.csv", stringsAsFactors = FALSE)
+```
+
+---
+
+# 1. Print the Structure of the Dataset
+
+```{r structure}
+str(df)
+```
+
+---
+
+# 2. List the Variables in the Dataset
+
+```{r variables}
+names(df)
+```
+
+---
+
+# 3. Print the Top 15 Rows
+
+```{r head}
+head(df, 15)
+```
+
+---
+
+# 4. User-Defined Function
+
+A custom function is defined to calculate the **duration** of a condition (e.g. asthma) given a start and end age column. It returns the duration in years, or `NA` if either value is missing.
+
+```{r user-function}
+# User-defined function: calculate duration between two age columns
+calculate_duration <- function(start_age, end_age) {
+  duration <- ifelse(!is.na(start_age) & !is.na(end_age),
+                     round(end_age - start_age, 2),
+                     NA)
+  return(duration)
+}
+
+# Apply to asthma start and end ages
+df$ASTHMA_DURATION <- calculate_duration(df$ASTHMA_START, df$ASTHMA_END)
+
+# Preview results
+head(df[!is.na(df$ASTHMA_DURATION), c("SUBJECT_ID", "ASTHMA_START", "ASTHMA_END", "ASTHMA_DURATION")], 10)
+```
+
+---
+
+# 5. Filter Rows Based on Logical Criteria
+
+Filter to keep only patients who:
+- Are part of the **Atopic March Cohort** (`ATOPIC_MARCH_COHORT == TRUE`)
+- Have a **recorded peanut allergy start** age
+
+```{r filter}
+filtered_df <- df %>%
+  filter(ATOPIC_MARCH_COHORT == TRUE & !is.na(PEANUT_ALG_START))
+
+cat("Rows after filtering:", nrow(filtered_df), "\n")
+head(filtered_df[, c("SUBJECT_ID", "GENDER_FACTOR", "RACE_FACTOR",
+                     "PEANUT_ALG_START", "ATOPIC_MARCH_COHORT")], 10)
+```
+
+---
+
+# 6. Identify Dependent & Independent Variables and Reshape
+
+**Independent variables:** `AGE_START_YEARS`, `GENDER_FACTOR`, `RACE_FACTOR`, `PAYER_FACTOR`  
+**Dependent variable:** `NUM_ASTHMARX` (number of asthma prescriptions — outcome of interest)
+
+A new data frame is created by joining these selected variables.
+
+```{r reshape}
+# Select independent and dependent variables
+independent_vars <- df %>%
+  select(SUBJECT_ID, AGE_START_YEARS, GENDER_FACTOR, RACE_FACTOR, PAYER_FACTOR)
+
+dependent_var <- df %>%
+  select(SUBJECT_ID, NUM_ASTHMARX)
+
+# Join into a new data frame
+analysis_df <- inner_join(independent_vars, dependent_var, by = "SUBJECT_ID")
+
+cat("Dimensions of reshaped data frame:", dim(analysis_df), "\n")
+head(analysis_df, 10)
+```
+
+---
+
+# 7. Remove Missing Values
+
+```{r remove-na}
+cat("Rows before removing NAs:", nrow(analysis_df), "\n")
+
+analysis_df_clean <- na.omit(analysis_df)
+
+cat("Rows after removing NAs:", nrow(analysis_df_clean), "\n")
+cat("Rows removed:", nrow(analysis_df) - nrow(analysis_df_clean), "\n")
+```
+
+---
+
+# 8. Identify and Remove Duplicated Data
+
+```{r duplicates}
+cat("Number of duplicate rows:", sum(duplicated(df)), "\n")
+
+# Remove duplicates
+df_no_dupes <- df[!duplicated(df), ]
+
+cat("Rows before deduplication:", nrow(df), "\n")
+cat("Rows after deduplication:", nrow(df_no_dupes), "\n")
+```
+
+---
+
+# 9. Reorder Rows in Descending Order
+
+Reorder the cleaned analysis data frame by `NUM_ASTHMARX` in descending order (patients with the most asthma prescriptions first).
+
+```{r reorder}
+analysis_df_sorted <- analysis_df_clean %>%
+  arrange(desc(NUM_ASTHMARX), desc(AGE_START_YEARS))
+
+head(analysis_df_sorted, 10)
+```
+
+---
+
+# 10. Rename Column Names
+
+```{r rename}
+analysis_df_renamed <- analysis_df_clean %>%
+  rename(
+    Patient_ID        = SUBJECT_ID,
+    Age_At_Start      = AGE_START_YEARS,
+    Gender            = GENDER_FACTOR,
+    Race              = RACE_FACTOR,
+    Insurance_Type    = PAYER_FACTOR,
+    Asthma_Rx_Count   = NUM_ASTHMARX
+  )
+
+names(analysis_df_renamed)
+head(analysis_df_renamed, 5)
+```
+
+---
+
+# 11. Add New Variables Using a Mathematical Function
+
+Add two new computed columns:
+- `Asthma_Rx_Double`: number of asthma prescriptions multiplied by 2
+- `Age_At_Start_Months`: age at start converted from years to months
+
+```{r new-variables}
+analysis_df_renamed <- analysis_df_renamed %>%
+  mutate(
+    Asthma_Rx_Double    = Asthma_Rx_Count * 2,
+    Age_At_Start_Months = round(Age_At_Start * 12, 1)
+  )
+
+head(analysis_df_renamed[, c("Patient_ID", "Age_At_Start", "Age_At_Start_Months",
+                              "Asthma_Rx_Count", "Asthma_Rx_Double")], 10)
+```
+
+---
+
+# 12. Create a Training Set Using Random Number Generator
+
+```{r training-set}
+# Set seed for reproducibility
+set.seed(42)
+
+# Generate a random 70% training set
+train_index <- sample(1:nrow(analysis_df_renamed),
+                      size = floor(0.70 * nrow(analysis_df_renamed)),
+                      replace = FALSE)
+
+train_set <- analysis_df_renamed[train_index, ]
+test_set  <- analysis_df_renamed[-train_index, ]
+
+cat("Total rows:", nrow(analysis_df_renamed), "\n")
+cat("Training set rows (70%):", nrow(train_set), "\n")
+cat("Test set rows (30%):", nrow(test_set), "\n")
+
+head(train_set, 5)
+```
+
+---
+
+# 13. Print Summary Statistics
+
+```{r summary}
+summary(analysis_df_renamed)
+```
+
+---
+
+# 14. Statistical Functions on Numerical Variables
+
+Using `AGE_START_YEARS` (age at which the patient entered the study) and `NUM_ASTHMARX` (number of asthma prescriptions).
+
+```{r stats}
+# --- AGE_START_YEARS ---
+age_values <- analysis_df_renamed$Age_At_Start
+
+cat("=== Age At Start (Years) ===\n")
+cat("Mean:  ", round(mean(age_values), 4), "\n")
+cat("Median:", round(median(age_values), 4), "\n")
+cat("Range: ", round(range(age_values), 4), "\n")
+
+# Mode (custom function — R has no built-in mode for continuous data)
+get_mode <- function(x) {
+  x_clean <- x[!is.na(x)]
+  unique_vals <- unique(x_clean)
+  unique_vals[which.max(tabulate(match(x_clean, unique_vals)))]
+}
+cat("Mode:  ", round(get_mode(age_values), 4), "\n")
+
+# --- NUM_ASTHMARX ---
+rx_values <- analysis_df_renamed$Asthma_Rx_Count
+
+cat("\n=== Number of Asthma Prescriptions ===\n")
+cat("Mean:  ", round(mean(rx_values), 4), "\n")
+cat("Median:", round(median(rx_values), 4), "\n")
+cat("Range: ", range(rx_values), "\n")
+cat("Mode:  ", get_mode(rx_values), "\n")
+```
+
+---
+
+# 15. Scatter Plot
+
+**Age at Start vs. Number of Asthma Prescriptions** — to explore whether older patients at study entry tend to have more asthma prescriptions.
+
+```{r scatter-plot, fig.width=7, fig.height=5}
+ggplot(analysis_df_renamed, aes(x = Age_At_Start, y = Asthma_Rx_Count)) +
+  geom_point(alpha = 0.3, color = "#2C7BB6", size = 1.2) +
+  geom_smooth(method = "lm", color = "#D7191C", se = TRUE) +
+  labs(
+    title    = "Scatter Plot: Age at Start vs. Number of Asthma Prescriptions",
+    subtitle = "Each point represents one patient",
+    x        = "Age at Study Start (Years)",
+    y        = "Number of Asthma Prescriptions"
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+---
+
+# 16. Bar Plot
+
+**Distribution of Asthma Prescription Counts by Gender** — comparing the number of asthma prescriptions across male and female patients.
+
+```{r bar-plot, fig.width=7, fig.height=5}
+bar_data <- analysis_df_renamed %>%
+  group_by(Gender) %>%
+  summarise(Mean_Asthma_Rx = round(mean(Asthma_Rx_Count), 2))
+
+ggplot(bar_data, aes(x = Gender, y = Mean_Asthma_Rx, fill = Gender)) +
+  geom_bar(stat = "identity", width = 0.5, show.legend = FALSE) +
+  geom_text(aes(label = Mean_Asthma_Rx), vjust = -0.5, size = 4) +
+  scale_fill_manual(values = c("#4DAC26", "#D01C8B")) +
+  labs(
+    title    = "Bar Plot: Mean Asthma Prescriptions by Gender",
+    subtitle = "Average number of asthma prescriptions per gender group",
+    x        = "Gender",
+    y        = "Mean Number of Prescriptions"
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+---
+
+# 17. Pearson Correlation
+
+Finding the correlation between **Age at Start** and **Number of Asthma Prescriptions**.
+
+```{r pearson}
+pearson_result <- cor.test(
+  analysis_df_renamed$Age_At_Start,
+  analysis_df_renamed$Asthma_Rx_Count,
+  method = "pearson"
+)
+
+cat("Pearson Correlation Coefficient (r):", round(pearson_result$estimate, 4), "\n")
+cat("P-value:", format(pearson_result$p.value, scientific = TRUE), "\n")
+cat("95% Confidence Interval:", round(pearson_result$conf.int, 4), "\n")
+
+if (abs(pearson_result$estimate) < 0.2) {
+  cat("Interpretation: Very weak correlation\n")
+} else if (abs(pearson_result$estimate) < 0.4) {
+  cat("Interpretation: Weak correlation\n")
+} else if (abs(pearson_result$estimate) < 0.6) {
+  cat("Interpretation: Moderate correlation\n")
+} else {
+  cat("Interpretation: Strong correlation\n")
+}
+```
+
+---
+
+# Conclusion
+
+This analysis explored the Food Allergy dataset from Zenodo, which contains over 333,000 de-identified patient records. Key steps included:
+
+- **Data exploration:** Reviewed structure, variables, and top rows to understand the dataset.
+- **Data cleaning:** Removed missing values and duplicate records to ensure data integrity.
+- **Feature engineering:** Created new variables such as asthma duration and prescription count doubled.
+- **Statistical analysis:** Computed mean, median, mode, and range for key numerical variables.
+- **Visualization:** Scatter and bar plots revealed patterns in asthma prescriptions by age and gender.
+- **Correlation:** Pearson correlation assessed the linear relationship between age at study entry and asthma prescription frequency.
+
+---
+
+*GitHub Repository: [Add your GitHub link here]*
