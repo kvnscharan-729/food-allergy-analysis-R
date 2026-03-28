@@ -4,11 +4,11 @@ This project analyzes food allergy data using R Markdown.
 
 ---
 
-## 📌 Files Included
+## Files Included
 - R Markdown file (.Rmd)
 - Final knitted report (PDF)
 
 ---
 
-## 📄 Final Report
-👉 [Click here to view the PDF](./food_allergy_analysis (1).pdf)
+## Final Report
+[Click here to view the PDF](./food_allergy_analysis%20(1).pdf)
